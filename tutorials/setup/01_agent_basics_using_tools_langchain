@@ -1,0 +1,122 @@
+#Load the libraries and the model using HuggingFaceEndPoint()
+
+from langchain_community.llms.huggingface_endpoint import HuggingFaceEndpoint
+
+##################################################
+#Model API call
+repo_id = "mistralai/Mistral-7B-Instruct-v0.2"
+
+llm = HuggingFaceEndpoint(
+    repo_id=repo_id,
+    temperature=0.5,
+    huggingfacehub_api_token= "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")
+
+from langchain.agents import load_tools
+from langchain.agents import initialize_agent
+from langchain.agents import Tool,tool
+
+serpapi_api_key = "bc58ad6af6093ab45636ad37628ffb825b011c0c60b9f47f39c523ad1c7ddaf1"
+
+import os
+os.environ["SERPAPI_API_KEY"]=serpapi_api_key
+#load existing tool from langchain.agents import load_tools
+tools = load_tools(["serpapi","llm-math"],llm=llm)
+
+#get tool description
+tools[0].name, tools[0].description
+
+#Initialize Agent
+agent = initialize_agent(tools,
+                         llm,
+                         agent="zero-shot-react-description",
+                         verbose = True,
+                         handle_pursing_errors =  True)
+
+agent.agent.llm_chain.prompt.template
+
+## Standard LLM Query
+agent.run("Hi How are you today?")
+agent.run("What is DeepMind")
+
+#appending new tool-----------------
+@tool
+def get_word_length(word:str) -> int:
+    """returns the length of a word."""
+    return len(word)
+get_word_length.invoke("abc")
+tools_new = [get_word_length]
+tools_new.append(tools[1])
+print(tools_new)
+tools_new[0].name, tools_new[0].description
+tools_new[1].name, tools_new[1].description
+
+from langchain.memory import ConversationBufferWindowMemory
+memory = ConversationBufferWindowMemory(memory_key="chat_history",
+                                        k=3, #k refers to number of history
+                                        return_messages=True)
+
+#Initializing the Agent -------------------
+from langchain.agents import AgentType
+agent = initialize_agent(tools_new,
+                         llm,
+                         max_iterations = 3,
+                         agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+                         verbose=True,
+                         memory = memory,
+                         handle_parsing_errors=True)
+agent.agent.llm_chain.prompt.template
+
+agent.run("what is the sum of 2+2")
+agent.run("tell me about ellora")
+results = agent.invoke("Where is it located?")
+
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain.prompts import PromptTemplate
+
+prompt = PromptTemplate.from_template("""Answer the following question as best as you can. You have access to the following tools:
+                                      {tools}
+                                      {chat_history}
+                                      use the following format:
+                                      Question: the input question you must answer
+                                      Thought: you hsould always think abuot what to do
+                                      Action: the action to take, should be one of [{tool_names}]
+                                      Action Input: summarise
+                                      
+                                      Observation: the result of the action
+                                      ...(this Tought/Action/Action Input/Observation can repeat N times)
+                                      Tought: I now know the final answer
+                                      Final Answer: The final answer to the original input question
+                                      
+                                      Begin!
+                                      
+                                      Question:{input}
+                                      Though:{agent_scratchpad} 
+                                      """
+                                      )
+                                      #if we mention {tools} {chat_history} it will look into tools & chat_history
+                                      #agent scratchpad is a function that formats the intermediate steps of the agent's actions and observations into a string. 
+
+                                      #Adding Memory -----------------
+
+from langchain.memory import ConversationBufferWindowMemory
+memory2 = ConversationBufferWindowMemory(memory_key="chat_history",
+                                         k=3,
+                                         return_messages=True)
+agent=create_react_agent(llm,tools_new,prompt)
+#create_react_agent that uses ReAct prompting.
+#Based on paper "ReAct:Synergizing and acting in language models" (https://arxiv.org/abs/2210.03629)
+
+#tool details
+#note we have only get_word_length and calculator in the new tool list
+
+agent_executor = AgentExecutor(
+    agent=agent, #defing the create_react_act() instead of AgentType.CONVERSATIONAL_REACT_DESCRIPTION
+    tools=tools,
+    verbose = True,
+    max_iterations = 5,
+    memory = memory2,
+    #max_execution_time = max_execution_time
+    #early_stopping_method = early_stopping_method
+    handle_parsing_errors=True)
+
+results3 = agent_executor.invoke({"input":"tell me more about Ellora"})
